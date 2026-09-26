@@ -1,0 +1,27 @@
+# Pinned model per role — Anthropic alternative, not in use (see models.yaml).
+# Run with: uv run tcv pilot --models configs/models.anthropic.yaml
+# Never use a floating alias: a mid-project model update would silently make
+# every earlier result incomparable. Change only by explicit team decision,
+# and bump the config so runs record the change.
+provider: anthropic
+
+roles:
+  # Drafting the report: few calls, output quality matters most.
+  synthesizer:
+    model: claude-opus-5
+    max_tokens: 32000   # > 16000 → streamed
+    effort: high
+
+  # Planning, claim splitting, claim sorting: mechanical, moderate volume.
+  economy:
+    model: claude-haiku-4-5
+    max_tokens: 8000
+
+  # Checking claims against passages: ~80% of all calls, accuracy-critical.
+  judge:
+    model: claude-sonnet-5
+    max_tokens: 8000
+    effort: high
+
+# Hard ceiling per run; the gateway refuses new calls once reached.
+budget_usd_per_run: 2.00

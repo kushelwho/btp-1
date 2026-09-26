@@ -1,0 +1,29 @@
+# --- secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- data: reproducible from manifest + configs + response cache ---
+data/
+papers/*.pdf
+
+# --- model downloads ---
+.cache/
+models/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/

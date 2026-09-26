@@ -1,0 +1,27 @@
+# Pinned model per role (budget path A — hosted API, Google Gemini; D-1, 2026-09-26).
+# Never use a floating alias (no "-latest", no "-preview"): a mid-project model
+# update would silently make every earlier result incomparable. Change only by
+# explicit team decision, and bump the config so runs record the change.
+# The Anthropic equivalent is kept in models.anthropic.yaml.
+provider: gemini
+
+roles:
+  # Drafting the report: few calls, output quality matters most.
+  synthesizer:
+    model: gemini-3.8-flash
+    max_tokens: 32000
+    effort: high        # → thinking_level HIGH
+
+  # Planning, claim splitting, claim sorting: mechanical, moderate volume.
+  economy:
+    model: gemini-3.1-flash-lite
+    max_tokens: 8000
+
+  # Checking claims against passages: ~80% of all calls, accuracy-critical.
+  judge:
+    model: gemini-3.8-flash
+    max_tokens: 8000
+    effort: high
+
+# Hard ceiling per run (list prices); the gateway refuses new calls once reached.
+budget_usd_per_run: 2.00

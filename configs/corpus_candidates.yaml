@@ -1,0 +1,85 @@
+# Candidate corpus for decision D-3 — NOT yet approved, NOT downloaded.
+#
+# Team: add `decision: keep` or `decision: drop` to every entry, e.g.
+#   - {arxiv: "2305.19118", title: "...", year: 2023, priority: core, decision: keep}
+# then run `uv run tcv fetch`: it downloads the kept papers (pinned arXiv
+# versions) and writes configs/corpus.v1.yaml; ingest and freeze that.
+#
+# Checked against arXiv on 2026-09-26 (`uv run tcv fetch --check`): all 48 ids
+# point at the paper named here, including the 4 marked verify.
+#
+# Selection rules
+#   * On-topic for the synthesis queries: hallucination mitigation, multi-agent
+#     verification/debate, self-correction, claim-level factuality evaluation,
+#     attributed generation, retrieval-augmented generation.
+#   * Chosen so the corpus contains real cross-paper agreements AND tensions
+#     (e.g. self-correction works [Self-Refine] vs. it doesn't without external
+#     feedback [Huang et al. 2023]) — the tension-shaped queries need both sides.
+#   * priority: core     — directly on-topic; recommended
+#               optional — broader multi-agent/RAG context; drop first if trimming
+#   * verify: true — arXiv ID was quoted from memory with less certainty
+#     (now confirmed; the fetch step re-checks every title before download).
+#
+# Seed papers already in the corpus (6) are not repeated here.
+# core = 41, optional = 7 → 47–54 with the 6 seed papers, inside the 40–60 target.
+
+candidates:
+  # --- Multi-agent debate and collaboration ---------------------------------
+  - {arxiv: "2305.19118", title: "Encouraging Divergent Thinking in Large Language Models through Multi-Agent Debate", year: 2023, priority: core}
+  - {arxiv: "2308.07201", title: "ChatEval: Towards Better LLM-based Evaluators through Multi-Agent Debate", year: 2023, priority: core}
+  - {arxiv: "2309.13007", title: "ReConcile: Round-Table Conference Improves Reasoning via Consensus among Diverse LLMs", year: 2023, priority: core}
+  - {arxiv: "2402.06782", title: "Debating with More Persuasive LLMs Leads to More Truthful Answers", year: 2024, priority: core}
+  - {arxiv: "2311.17371", title: "Should We Be Going MAD? A Look at Multi-Agent Debate Strategies for LLMs", year: 2023, priority: core, verify: true}
+  - {arxiv: "2308.08155", title: "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation", year: 2023, priority: optional}
+  - {arxiv: "2308.10848", title: "AgentVerse: Facilitating Multi-Agent Collaboration and Exploring Emergent Behaviors", year: 2023, priority: optional}
+  - {arxiv: "2308.00352", title: "MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework", year: 2023, priority: optional}
+  - {arxiv: "2303.17760", title: "CAMEL: Communicative Agents for Mind Exploration of Large Language Model Society", year: 2023, priority: optional}
+
+  # --- Self-correction and verification loops -------------------------------
+  - {arxiv: "2303.17651", title: "Self-Refine: Iterative Refinement with Self-Feedback", year: 2023, priority: core}
+  - {arxiv: "2303.11366", title: "Reflexion: Language Agents with Verbal Reinforcement Learning", year: 2023, priority: core}
+  - {arxiv: "2309.11495", title: "Chain-of-Verification Reduces Hallucination in Large Language Models", year: 2023, priority: core}
+  - {arxiv: "2305.11738", title: "CRITIC: Large Language Models Can Self-Correct with Tool-Interactive Critiquing", year: 2023, priority: core}
+  - {arxiv: "2310.01798", title: "Large Language Models Cannot Self-Correct Reasoning Yet", year: 2023, priority: core}
+  - {arxiv: "2308.03188", title: "Automatically Correcting Large Language Models: Surveying the Landscape of Diverse Self-Correction Strategies", year: 2023, priority: core}
+  - {arxiv: "2305.03268", title: "Verify-and-Edit: A Knowledge-Enhanced Chain-of-Thought Framework", year: 2023, priority: core}
+  - {arxiv: "2310.08118", title: "Can Large Language Models Really Improve by Self-critiquing Their Own Plans?", year: 2023, priority: core}
+  - {arxiv: "2210.03629", title: "ReAct: Synergizing Reasoning and Acting in Language Models", year: 2022, priority: optional}
+
+  # --- Claim decomposition and factuality evaluation ------------------------
+  - {arxiv: "2305.14251", title: "FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation", year: 2023, priority: core}
+  - {arxiv: "2403.18802", title: "Long-form Factuality in Large Language Models", year: 2024, priority: core}
+  - {arxiv: "2303.08896", title: "SelfCheckGPT: Zero-Resource Black-Box Hallucination Detection for Generative Large Language Models", year: 2023, priority: core}
+  - {arxiv: "2307.13528", title: "FacTool: Factuality Detection in Generative AI -- A Tool Augmented Framework for Multi-Task and Multi-Domain Scenarios", year: 2023, priority: core}
+  - {arxiv: "2404.10774", title: "MiniCheck: Efficient Fact-Checking of LLMs on Grounding Documents", year: 2024, priority: core}
+  - {arxiv: "2305.16739", title: "AlignScore: Evaluating Factual Consistency with a Unified Alignment Function", year: 2023, priority: core}
+  - {arxiv: "2401.06855", title: "Fine-grained Hallucination Detection and Editing for Language Models", year: 2024, priority: core, verify: true}
+  - {arxiv: "2309.15217", title: "RAGAS: Automated Evaluation of Retrieval Augmented Generation", year: 2023, priority: core}
+  - {arxiv: "2303.01432", title: "WiCE: Real-World Entailment for Claims in Wikipedia", year: 2023, priority: core, verify: true}
+  - {arxiv: "2111.09525", title: "SummaC: Re-Visiting NLI-based Models for Inconsistency Detection in Summarization", year: 2021, priority: core}
+  - {arxiv: "2112.08542", title: "QAFactEval: Improved QA-Based Factual Consistency Evaluation for Summarization", year: 2021, priority: core}
+  - {arxiv: "1910.12840", title: "Evaluating the Factual Consistency of Abstractive Text Summarization", year: 2019, priority: core}
+  - {arxiv: "1803.05355", title: "FEVER: a Large-scale Dataset for Fact Extraction and VERification", year: 2018, priority: core}
+
+  # --- Attributed generation and citations ----------------------------------
+  - {arxiv: "2305.14627", title: "Enabling Large Language Models to Generate Text with Citations", year: 2023, priority: core}
+  - {arxiv: "2210.08726", title: "RARR: Researching and Revising What Language Models Say, Using Language Models", year: 2022, priority: core}
+  - {arxiv: "2310.11511", title: "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection", year: 2023, priority: core}
+  - {arxiv: "2112.12870", title: "Measuring Attribution in Natural Language Generation Models", year: 2021, priority: core}
+  - {arxiv: "2212.08037", title: "Attributed Question Answering: Evaluation and Modeling for Attributed Large Language Models", year: 2022, priority: core}
+  - {arxiv: "2304.09848", title: "Evaluating Verifiability in Generative Search Engines", year: 2023, priority: core}
+  - {arxiv: "2203.11147", title: "Teaching Language Models to Support Answers with Verified Quotes", year: 2022, priority: core}
+  - {arxiv: "2112.09332", title: "WebGPT: Browser-assisted Question-answering with Human Feedback", year: 2021, priority: core}
+
+  # --- Retrieval augmentation and hallucination ------------------------------
+  - {arxiv: "2005.11401", title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks", year: 2020, priority: core}
+  - {arxiv: "2104.07567", title: "Retrieval Augmentation Reduces Hallucination in Conversation", year: 2021, priority: core}
+  - {arxiv: "2401.00396", title: "RAGTruth: A Hallucination Corpus for Developing Trustworthy Retrieval-Augmented Language Models", year: 2024, priority: core, verify: true}
+  - {arxiv: "2307.03172", title: "Lost in the Middle: How Language Models Use Long Contexts", year: 2023, priority: optional}
+
+  # --- Hallucination surveys, benchmarks, calibration ------------------------
+  - {arxiv: "2311.05232", title: "A Survey on Hallucination in Large Language Models: Principles, Taxonomy, Challenges, and Open Questions", year: 2023, priority: core}
+  - {arxiv: "2202.03629", title: "Survey of Hallucination in Natural Language Generation", year: 2022, priority: core}
+  - {arxiv: "2305.11747", title: "HaluEval: A Large-Scale Hallucination Evaluation Benchmark for Large Language Models", year: 2023, priority: core}
+  - {arxiv: "2109.07958", title: "TruthfulQA: Measuring How Models Mimic Human Falsehoods", year: 2021, priority: core}
+  - {arxiv: "2207.05221", title: "Language Models (Mostly) Know What They Know", year: 2022, priority: optional}

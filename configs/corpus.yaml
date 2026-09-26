@@ -1,0 +1,57 @@
+# Corpus source list. Bump `version` whenever a document is added or removed,
+# or when chunking/normalisation changes — every prior run is then invalid.
+#
+# `source` records where the exact file came from:
+#   arxiv:<id>v<n>   — identifier printed in the PDF's arXiv stamp
+#   doi:<doi>        — publisher DOI
+#   local            — provided by the team, no public identifier found
+#
+# The 6 seed papers below are the ones in papers/. The full 40–60 paper
+# corpus is pending team approval (decision D-3) — see configs/corpus_candidates.yaml.
+
+version: v0-seed
+papers_dir: papers
+embed_model: BAAI/bge-small-en-v1.5
+
+chunker:
+  target_words: 180
+  max_words: 300
+  overlap_words: 40
+  min_words: 12
+
+documents:
+  - doc_id: gsar-2026
+    title: "GSAR: Typed Grounding for Hallucination Detection and Recovery in Multi-Agent LLMs"
+    filename: "GSAR- Typed Grounding for Hallucination Detection and Recovery in Multi-Agent LLMs.pdf"
+    source: "arxiv:2604.23366v1"
+    year: 2026
+
+  - doc_id: march-2026
+    title: "MARCH: Multi-Agent Reinforced Self-Check for LLM Hallucination"
+    filename: "MARCH- Multi-Agent Reinforced Self-Check for LLM Hallucination.pdf"
+    source: "arxiv:2603.24579v1"
+    year: 2026
+
+  - doc_id: tool-mad-2026
+    title: "Tool-MAD: A Multi-Agent Debate Framework for Fact Verification with Diverse Tool Augmentation and Adaptive Retrieval"
+    filename: "Tool-MAD- A Multi-Agent Debate Framework for Fact Verification with Diverse Tool Augmentation and Adaptive Retrieval.pdf"
+    source: "arxiv:2601.04742v1"
+    year: 2026
+
+  - doc_id: claimveragents-2025
+    title: "ClaimVerAgents: A Multi-Agent Retrieval-Augmented Claim Verification Framework"
+    filename: "ClaimVerAgents A MultiAgent Retrieval Augmented Claim Verification Framework.pdf"
+    source: local
+    year: 2025
+
+  - doc_id: yang-2025
+    title: "Minimizing Hallucinations and Communication Costs: Adversarial Debate and Voting Mechanisms in LLM-Based Multi-Agents"
+    filename: "Minimizing Hallucinations and Communication Costs- Adversarial Debate and Voting Mechanisms in LLM-Based Multi-Agents.pdf"
+    source: "doi:10.3390/app15073676"
+    year: 2025
+
+  - doc_id: du-2023
+    title: "Improving Factuality and Reasoning in Language Models through Multiagent Debate"
+    filename: "Improving Factuality and Reasoning in Language Models through Multiagent Debate.pdf"
+    source: "arxiv:2305.14325v1"
+    year: 2023

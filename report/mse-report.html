@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Type-Routed Claim Verification for Hallucination-Resistant Long-Form Research Synthesis</title>
+<style>
+  body { font-family: "Times New Roman", Times, serif; font-size: 12pt; }
+</style>
+</head>
+<body>
+
+<!-- ============ FRONT PAGE ============ -->
+<div class="titlepage">
+
+<p class="label" style="font-size:13pt;">NETAJI SUBHAS UNIVERSITY OF TECHNOLOGY</p>
+
+<div class="logobox">
+[ INSERT NSUT LOGO HERE ]
+</div>
+
+<p style="font-size:12pt;">Department of Computer Science and Engineering</p>
+
+<p class="subtitle">B.Tech Project &mdash; Mid-Semester Evaluation Report</p>
+
+<p class="maintitle">Type-Routed Claim Verification for Hallucination-Resistant Long-Form Research Synthesis</p>
+
+<p class="label">Submitted by</p>
+
+<table style="width:70%;">
+<tr><th style="width:60%;">Name</th><th>Roll Number</th></tr>
+<tr><td>Krish Garg</td><td>2023UCS1685</td></tr>
+<tr><td>Kanishka Yadav</td><td>2023UCS1696</td></tr>
+<tr><td>Kushel Rohilla</td><td>2023UCS1712</td></tr>
+</table>
+
+<p class="label">Under the supervision of</p>
+<p style="font-size:14pt;"><b>Dr. Vivek Mehta</b></p>
+<p style="font-size:11pt;">Department of Computer Science and Engineering</p>
+
+<p style="font-size:11pt;">Academic Year 2026&ndash;27</p>
+
+</div>
+
+<!-- ============ TABLE OF CONTENTS ============ -->
+<div class="pagebreak"></div>
+<h1>Table of Contents</h1>
+
+<div class="toc">
+<p><b>1. Introduction</b></p>
+<p><b>2. Motivation</b></p>
+<p style="margin-left:18pt;">2.1 Why Long-Form Synthesis Is Structurally Different</p>
+<p style="margin-left:18pt;">2.2 The Three Failure Modes</p>
+<p style="margin-left:18pt;">2.3 The Unexamined Verifier</p>
+<p><b>3. Literature Survey</b></p>
+<p style="margin-left:18pt;">3.1 Multi-Agent Verification and Debate</p>
+<p style="margin-left:18pt;">3.2 Attributed Generation and Faithfulness Evaluation</p>
+<p style="margin-left:18pt;">3.3 Comparative Summary</p>
+<p><b>4. Problem Statement</b></p>
+<p style="margin-left:18pt;">4.1 Formal Statement</p>
+<p style="margin-left:18pt;">4.2 Gap Analysis</p>
+<p><b>5. Objective and Methodology</b></p>
+<p style="margin-left:18pt;">5.1 Objectives</p>
+<p style="margin-left:18pt;">5.2 System Architecture</p>
+<p style="margin-left:18pt;">5.3 The Critic</p>
+<p style="margin-left:18pt;">5.4 Bounded Loop and Typed Escalation</p>
+<p style="margin-left:18pt;">5.5 Evaluation Methodology</p>
+<p><b>6. Simulation Platform and Requirements</b></p>
+<p style="margin-left:18pt;">6.1 Software Stack and Model Assignment</p>
+<p style="margin-left:18pt;">6.2 Cost Model</p>
+<p style="margin-left:18pt;">6.3 Corpus and Annotation</p>
+<p><b>7. Conclusion</b></p>
+<p style="margin-left:18pt;">7.1 Contributions</p>
+<p style="margin-left:18pt;">7.2 Work Plan</p>
+<p style="margin-left:18pt;">7.3 Anticipated Limitations</p>
+<p><b>8. References</b></p>
+</div>
+
+<!-- ============ 1. INTRODUCTION ============ -->
+<div class="pagebreak"></div>
+<h1>1. Introduction</h1>
+
+<p>Large Language Models (LLMs) synthesize complex information and perform multi-step reasoning at a level that makes them attractive for automated research synthesis &mdash; reading a corpus of technical documents and producing a structured, long-form report over them. The practical value is clear: literature surveys, technical due diligence, and state-of-the-art reviews are expensive, repetitive, and bounded by how much a human analyst can read.</p>
+
+<p>When LLMs are deployed for this task, they exhibit a persistent failure mode: <b>context-conflicting hallucination</b>. As output length and corpus density grow, models produce statements that are fluent, authoritative, and stylistically persuasive but unsupported by &mdash; or contradictory to &mdash; the retrieved sources. The failure is particularly damaging here because the output <i>reads</i> like a credible survey. A reader cannot distinguish a grounded sentence from a fabricated one without re-reading the corpus, which defeats the purpose of automation.</p>
+
+<p>The research community has converged on <b>claim-level verification</b> as the response: decompose generated text into atomic claims, retrieve the evidence each cites, check whether that evidence entails the claim, and use the result to score the output or drive a correction loop. This convergence is well-founded and we do not contest it.</p>
+
+<p>Our problem concerns the boundary of where it applies. The central claim of this project is that <b>claim-level verification was developed for short-form question answering, and does not transfer cleanly to long-form synthesis.</b> We identify three failure modes that appear only once outputs are long enough to be reports rather than answers, and that are undetectable by per-claim entailment &mdash; not because entailment models are weak, but because the operation is the wrong one for these claim types. We propose a <b>type-routed Critic</b> that determines what kind of check each claim admits before attempting to verify it, and evaluate it with a seeded-error harness deliberately constructed so that a majority of its error classes are invisible to the standard method.</p>
+
+<p>The system is <b>training-free</b>, operating entirely at inference time with no fine-tuning and no compute cluster. This distinguishes it from the strongest comparable result in the literature (MARCH, Section 3.1), which achieves its gains through multi-agent reinforcement learning.</p>
+
+<!-- ============ 2. MOTIVATION ============ -->
+<h1>2. Motivation</h1>
+
+<h2>2.1 Why Long-Form Synthesis Is Structurally Different</h2>
+
+<p>In short-form question answering, a response is a handful of atomic facts, each traceable to a passage. Verification is therefore well-posed: take the fact, take the passage, ask whether one entails the other.</p>
+
+<p>In a research report, the sentences carrying the most analytical value are precisely those that <i>no single passage entails</i>. Each line below is an ordinary sentence in a competent literature survey, and none can be verified by retrieving its cited passage and running an entailment check:</p>
+
+<pre>
+"Three of the five surveyed frameworks bound their loop."   -> aggregation over sources
+"This approach consistently outperforms debate baselines."  -> universal quantifier
+"Unlike earlier work, X does not measure verifier error."   -> cross-source contrast
+"The trend from 2023 to 2026 is toward bounded recovery."   -> temporal synthesis
+"This demonstrates that retrieval is the binding constraint."-> assertiveness beyond evidence
+"We now turn to the question of retrieval quality."         -> discourse scaffolding
+</pre>
+<p class="caption">Figure 1: Sentence types in long-form synthesis that single-passage entailment mishandles.</p>
+
+<h2>2.2 The Three Failure Modes</h2>
+
+<p><b>F1 &mdash; Set-valued truth conditions.</b> A claim such as <i>"three of five frameworks bound their loop"</i> is not an atom, and is not reducible to a set of independently scored atoms. Its truth condition is an <b>operator over</b> a set of atoms. Single-passage entailment fails in both directions at once: it flags the claim unsupported when it is correct (no individual passage entails it), penalising exactly the sentences that make a report a synthesis rather than a list of quotations; and it passes the claim when it is wrong, because the cited passage supports whichever fragment happened to be checked. Miscounts, false contrasts, and invented trends are invisible to per-passage checking by construction. This is not a capacity limitation a stronger model would resolve: the cited passage genuinely does not contain the aggregation, so no judgment over it can return the right answer.</p>
+
+<p><b>F2 &mdash; Internal inconsistency.</b> A long report can assert in one section that <i>"GSAR bounds its recovery loop"</i> and in another that <i>"no reviewed framework bounds its loop."</i> Both claims may be individually well-grounded, against different passages, and jointly contradictory. This failure <b>cannot occur in short-form QA</b> &mdash; an output must be long enough to contradict itself &mdash; which is why the QA-derived literature has had no occasion to develop a mechanism for it. No verifier that checks claims independently against evidence can detect it, regardless of accuracy, because the contradiction exists between two claims rather than between any claim and any passage.</p>
+
+<p><b>F3 &mdash; Assertiveness drift.</b> Verification asks <i>whether</i> a claim is supported, not whether its <b>linguistic strength matches the strength of its support</b>. The sentence <i>"This demonstrates that X"</i>, backed by a single preliminary result, is an overclaim, yet passes entailment because the underlying fact is present. Standard atomization pipelines discard epistemic modality as noise before checking &mdash; normalising "may suggest that X" to the bare proposition X &mdash; so overclaiming is invisible to all of them. This matters disproportionately in research synthesis, where overclaiming is the characteristic failure of the genre.</p>
+
+<h2>2.3 The Unexamined Verifier</h2>
+
+<p>A compounding gap concerns the verifier itself. The literature reports the accuracy of systems that <i>contain</i> verifiers, but rarely the error profile <i>of</i> the verifier. Where a catch rate is reported at all, it is measured on short isolated claims with gold evidence, with no corresponding false-positive rate.</p>
+
+<p>For long-form synthesis, false-positive rate is the metric that determines usability. A Critic that flags every topic sentence produces a report drowned in "unverified" banners regardless of how many genuine hallucinations it catches. Strictness and completeness trade off directly, and no reviewed work measures where that tradeoff sits.</p>
+
+<!-- ============ 3. LITERATURE SURVEY ============ -->
+<div class="pagebreak"></div>
+<h1>3. Literature Survey</h1>
+
+<p>Prior work falls along two axes. Axis A supplies the multi-agent architecture and bounded-recovery framing; Axis B supplies the verification primitives on which the Critic is built.</p>
+
+<h2>3.1 Multi-Agent Verification and Debate</h2>
+
+<table>
+<tr><th style="width:20%;">Work</th><th style="width:42%;">Core contribution</th><th>Relation to this project</th></tr>
+
+<tr><td><b>GSAR</b><br>Kamelhar, 2026</td>
+<td>Partitions claims four ways (grounded / ungrounded / contradicted / complementary), weights evidence by epistemic provenance, and couples an asymmetric contradiction-penalised score to a three-tier recovery function (proceed / regenerate / replan) under an explicit compute budget. Evaluated on FEVER.</td>
+<td>Closest prior work on bounded recovery, and the only reviewed paper reporting a verifier catch rate. We adopt its bounded-budget framing. It evaluates on short FEVER claims rather than generated text, reports no false-positive rate, and types <i>evidence status</i> rather than <i>claim checkability</i>.</td></tr>
+
+<tr><td><b>MARCH</b><br>Li et al., 2026</td>
+<td>Asymmetric three-agent RL pipeline: a Solver generates a RAG response, a Proposer atomizes it into verifiable propositions, and a Checker validates them against evidence <i>in isolation</i>, blinded to the Solver's output. Trained with multi-agent RL and a zero-tolerance reward.</td>
+<td><b>Our nearest neighbour.</b> Its Solver&rarr;Proposer&rarr;Checker decomposition maps closely onto ours, including the isolation rationale, which we <b>adopt as settled prior art</b>. Our departure: MARCH assumes every proposition is verifiable by single-passage entailment. We also target the training-free regime.</td></tr>
+
+<tr><td><b>Tool-MAD</b><br>Jeong et al., 2026</td>
+<td>Assigns each debating agent a distinct external tool (search API vs. RAG module), with adaptive query reformulation across rounds and RAGAS-derived stability scores guiding a Judge. Up to 5.5% gain over MADKE.</td>
+<td>Establishes that iterative retrieval refinement beats one-shot retrieval. Verification remains debate-adjudicated; task remains short-claim fact verification.</td></tr>
+
+<tr><td><b>ClaimVer&shy;Agents</b><br>Sallami et al., 2025</td>
+<td>Modular pipeline for fake-news detection: claim extraction, query generation, search, evidence evaluation, verdict, explanation. Includes a "Not Enough Information" abstention label. Evaluated on PolitiFact.</td>
+<td>The NEI mechanism is the closest precedent for our escalation state &mdash; treating evidence-insufficiency as a legitimate verdict. Task is single-claim classification, not generation.</td></tr>
+
+<tr><td><b>Yang et al.</b><br>2025</td>
+<td>Combines repetitive inquiry and error logs with adversarial debate and accuracy-weighted voting; entropy compression reduces token usage.</td>
+<td>One of few papers treating token cost as a first-class objective. Truth remains defined by weighted agreement between models.</td></tr>
+
+<tr><td><b>Du et al.</b><br>2023 / 2024</td>
+<td>The foundational debate paradigm: multiple model instances propose answers independently, then iteratively condition on one another across rounds. Requires only black-box access.</td>
+<td>Serves as our debate baseline in the three-way end-to-end comparison (Section 5.5).</td></tr>
+</table>
+<p class="caption">Table 1: Multi-agent verification and debate literature.</p>
+
+<h2>3.2 Attributed Generation and Faithfulness Evaluation</h2>
+
+<p>This axis, rather than multi-agent debate, is the direct methodological ancestor of our Critic. Both of our nearest neighbours build on it explicitly: GSAR states that FActScore establishes the atomic-claim decomposition protocol it relies upon, and MARCH's Proposer is a FActScore-lineage atomizer.</p>
+
+<table>
+<tr><th style="width:30%;">Sub-area</th><th style="width:28%;">Representative work</th><th>Contribution</th></tr>
+<tr><td>Atomic-claim decomposition</td><td>FActScore; RAGAS</td><td>Breaking generated text into atomic facts scored independently against a knowledge source</td></tr>
+<tr><td>Faithfulness classifiers</td><td>Vectara HHEM; TruLens RAG Triad</td><td>Binary or scalar hallucination scoring of a response against a source context</td></tr>
+<tr><td>Claim verification pipelines</td><td>FEVER lineage</td><td>The three-way NLI partition (SUPPORTS / REFUTES / NOT ENOUGH INFO) inherited by nearly all downstream work</td></tr>
+<tr><td>Citation-attributed generation</td><td>ALCE; RARR; Self-RAG</td><td>Models emitting inline citations, with citation precision and recall evaluated directly</td></tr>
+<tr><td>Long-form factuality</td><td>SAFE / LongFact</td><td>Extends atomic-fact scoring to long-form generation with search-based verification per atom</td></tr>
+</table>
+<p class="caption">Table 2: Attributed generation and faithfulness evaluation.</p>
+
+<p><b>Adopted from this axis and explicitly not claimed as contribution:</b> atomic decomposition, per-claim entailment against cited evidence, inline attribution, and the three-way verdict lattice.</p>
+
+<h2>3.3 Comparative Summary</h2>
+
+<p>Across both axes, every reviewed method scores atoms <i>independently</i> and aggregates by counting. Consequently: a claim whose truth condition is itself an aggregation has no defined treatment; no method compares claims to one another; all discard epistemic modality during atomization; none distinguishes claims <i>ineligible</i> for entailment checking from claims that <i>fail</i> it; and none reports a verifier false-positive rate on generated long-form output.</p>
+
+<p>Against that background, the framework proposed here is the only one of the seven to verify aggregative claims, to type claims by checking eligibility rather than by evidence status, to search uncited evidence for counterexamples, to compare claims against one another, to calibrate assertiveness against evidence strength, or to report a verifier false-positive rate &mdash; and it does so training-free, whereas the strongest comparable result requires a reinforcement-learning cluster.</p>
+
+<!-- ============ 4. PROBLEM STATEMENT ============ -->
+<h1>4. Problem Statement</h1>
+
+<h2>4.1 Formal Statement</h2>
+
+<p>Given a bounded corpus of technical documents <i>D</i> and a high-level synthesis query <i>q</i>, generate a long-form structured report <i>R</i> in which every factual assertion is either (a) verifiably grounded in <i>D</i>, or (b) explicitly and informatively marked as unverified.</p>
+
+<p>The research problem is that the standard operation available for step (a) &mdash; entailment of a claim against the passage it cites &mdash; is <b>undefined or incorrect</b> for three classes of claim that dominate long-form synthesis: claims whose truth conditions range over a <b>set</b> of passages; claims that contradict <b>each other</b> while each remains individually grounded; and claims that <b>overstate</b> what their evidence licenses while remaining technically supported. A subsidiary problem is that the verifier performing step (a) has an unmeasured error profile, making the strictness/completeness tradeoff impossible to reason about.</p>
+
+<h2>4.2 Gap Analysis</h2>
+
+<table>
+<tr><th style="width:28%;">Gap</th><th style="width:52%;">Description</th><th>Status</th></tr>
+<tr><td><b>G1</b> Aggregative claims</td><td>Claims whose truth conditions range over a set of passages cannot be verified by single-passage entailment, yet are the highest-value sentences in a synthesis report.</td><td>Unaddressed</td></tr>
+<tr><td><b>G2</b> Claim eligibility</td><td>Discourse scaffolding and interpretive commentary are not factual claims. Forcing them through binary entailment guarantees over-flagging.</td><td>Unaddressed</td></tr>
+<tr><td><b>G3</b> Disconfirming evidence</td><td>Universal claims are falsified by evidence the generator did <i>not</i> cite. Checking only cited passages cannot detect over-generalization.</td><td>Unaddressed</td></tr>
+<tr><td><b>G4</b> Internal consistency</td><td>Two individually-grounded claims may contradict each other. Possible only in long-form output.</td><td>Unaddressed</td></tr>
+<tr><td><b>G5</b> Assertiveness</td><td>Modality is discarded during atomization, so overclaiming on thin evidence passes verification.</td><td>Unaddressed</td></tr>
+<tr><td><b>G6</b> Citation vs. factual error</td><td>A claim that is true but wrongly cited is indistinguishable from a fabrication, forcing regeneration where a citation swap would suffice.</td><td>Unaddressed in-loop</td></tr>
+<tr><td><b>G7</b> Verifier FPR</td><td>Catch rate is occasionally reported; false-positive rate is not. For long-form output, FPR determines usability.</td><td>Partial</td></tr>
+<tr><td><b>G8</b> Loop dynamics</td><td>Whether correction converges, and whether revision displaces errors rather than removing them, is unmeasured. Iteration caps are asserted, not derived.</td><td>Unaddressed</td></tr>
+<tr><td><b>G9</b> Training cost</td><td>The strongest self-check result (MARCH) requires multi-agent reinforcement learning.</td><td>Open by design</td></tr>
+</table>
+<p class="caption">Table 3: Gap analysis.</p>
+
+<!-- ============ 5. OBJECTIVE AND METHODOLOGY ============ -->
+<div class="pagebreak"></div>
+<h1>5. Objective and Methodology</h1>
+
+<h2>5.1 Objectives</h2>
+
+<p>Seven mechanism objectives and four measurement objectives, each addressing a gap from Table 4.</p>
+
+<p><b>N1 &mdash; Claim-eligibility typing</b> (G2): route each claim by what kind of check it admits, before attempting verification. <b>N2 &mdash; Composition verification</b> (G1): evaluate aggregation operators in code over independently verified atoms. <b>N3 &mdash; Disconfirming sweep</b> (G3): search uncited retrieved evidence for counterexamples to universal claims. <b>N4 &mdash; Intra-report consistency</b> (G4): pairwise contradiction detection across the verified claim set. <b>N5 &mdash; Assertiveness calibration</b> (G5): compare claim modality against evidence strength. <b>N6 &mdash; Misattribution verdict</b> (G6): separate citation error from factual error. <b>N7 &mdash; Retraction propagation</b>: invalidate dependent claims via a claim dependency graph.</p>
+
+<p><b>N8 &mdash; Seeded-error harness</b> (G7): per-class catch rate and FPR by claim type. <b>N9 &mdash; Oracle-retrieval ablation</b>: separate verifier error from retrieval error. <b>N10 &mdash; Router validation</b>: inter-annotator agreement on the taxonomy. <b>N11 &mdash; Loop dynamics</b> (G8): including error-displacement measurement.</p>
+
+<h2>5.2 System Architecture</h2>
+
+<pre>
+     +-------------------------------------------------------+
+     |   PLANNER  --  decomposes query into sub-tasks        |
+     +-----------------------------+-------------------------+
+                                   v
+     +-------------------------------------------------------+
+     |   RESEARCHER  --  SOLE holder of retrieval tools      |
+     |   Emits tagged passages (document_id, page, chunk_id) |
+     |   Retains full pool P, including uncited passages     |
+     +-----------------------------+-------------------------+
+                                   v
+     +-------------------------------------------------------+
+     |   SYNTHESIZER  --  drafts report, inline attribution  |
+     +-----------------------------+-------------------------+
+                                   v
+     +-------------------------------------------------------+
+     |   CRITIC  --  grounding engine                        |
+     |     A. Atomization      -> claims, modality kept      |
+     |     B. Type router      -> assign T1..T4              |
+     |     C. Path verification-> per-type check             |
+     |     D. Assertiveness    -> modality vs. evidence      |
+     |     E. Report-level     -> intra-report consistency   |
+     |     F. Retraction propagation over dependency graph   |
+     +--------+----------------------------------+-----------+
+              |                                  |
+    [failures & round < N]              [resolved OR round = N]
+              v                                  v
+    +---------------------+      +------------------------------+
+    | Targeted revision   |      | Final report; unresolved     |
+    | payload -> Synth.   |      | claims carry typed labels    |
+    +---------------------+      +------------------------------+
+</pre>
+<p class="caption">Figure 2: System architecture.</p>
+
+<p>The <b>Planner</b> decomposes the query into sub-tasks and a report outline. The <b>Researcher</b> is the only component with retrieval access &mdash; a structural invariant, not a convenience, guaranteeing that no downstream agent can introduce parametric memory into the evidence pool. It retains the full retrieval pool <i>P</i> per sub-task <b>including passages the Synthesizer never cites</b>, which N3 and N6 both require. The <b>Synthesizer</b> drafts with strict inline attribution, and on later rounds revises only flagged spans.</p>
+
+<h2>5.3 The Critic</h2>
+
+<p><b>Step A &mdash; Atomization.</b> The draft is decomposed into standalone claims with sentence indices preserved, following the established FActScore protocol, with one modification: <b>epistemic modality is preserved as claim metadata rather than stripped</b>. Standard atomizers normalise "may suggest that X" to the proposition X; we retain the modal operator, because Step D requires it.</p>
+
+<p><b>Step B &mdash; Type router (N1).</b> Each claim is assigned exactly one type before any verification is attempted.</p>
+
+<table>
+<tr><th style="width:16%;">Type</th><th style="width:30%;">Definition</th><th style="width:26%;">Example</th><th>Verification path</th></tr>
+<tr><td><b>T1</b> Direct</td><td>Truth conditions met by a single passage</td><td>"Tool-MAD reports 5.5% improvement"</td><td>Single-passage entailment</td></tr>
+<tr><td><b>T2</b> Aggregative</td><td>Truth conditions range over a set: counts, quantifiers, comparisons, trends</td><td>"Three of five frameworks bound their loop"</td><td>Atom-set verification, composition check, disconfirming sweep</td></tr>
+<tr><td><b>T3</b> Inferential</td><td>Reasoned extension beyond what evidence states</td><td>"This suggests retrieval is the constraint"</td><td>Defeasibility check; labelled inference</td></tr>
+<tr><td><b>T4</b> Discourse</td><td>Structural scaffolding, no verifiable content</td><td>"We now turn to evaluation"</td><td><b>Exempt</b>; logged, not checked</td></tr>
+</table>
+<p class="caption">Table 4: The claim-eligibility taxonomy.</p>
+
+<p>Router error costs are asymmetric: misrouting T4 to T1 produces false positives, while misrouting T2 to T1 produces false negatives. Router accuracy is therefore itself a reported metric, validated against human annotation (N10) &mdash; a taxonomy on which two annotators cannot agree is not a taxonomy. A lexical pre-pass handles clear cases (discourse markers imply T4; quantifier keywords imply T2), reducing model invocations and providing a rule-only baseline.</p>
+
+<p><b>Step C &mdash; Type-specific verification.</b> T1 claims are checked by strict entailment against the exact cited passage, blinded to the rest of the draft, adopting MARCH's information-asymmetry protocol. When a T1 claim fails, the Critic re-checks it against the wider pool <i>P</i> before returning a verdict: a claim entailed by some <i>other</i> passage is a citation error rather than a factual error, and receives the distinct verdict <i>Misattributed</i> with a repair hint naming the correct chunk (N6). The repair is then a citation swap rather than a rewrite &mdash; cheaper, and it avoids the Synthesizer deleting correct content.</p>
+
+<p>T2 claims follow three sub-steps. First, <b>decomposition</b>: "three of the five surveyed frameworks bound their correction loop" splits into five per-framework atoms, each with its own passage. Second, <b>per-atom verification</b>, each atom checked as a T1 claim. Third, the <b>composition check</b>: the aggregation operator is evaluated <b>by the system, in code, over the verified atom set</b> rather than asserted by the model &mdash; a count by counting verified-true atoms, a comparison by evaluating it over verified values, a trend by checking monotonicity. Supported operators are <i>count</i>, <i>proportion</i>, <i>universal</i>, <i>existential</i>, <i>comparison</i>, <i>trend</i>, and <i>contrast</i>; an unrecognised operator escalates rather than silently passing. This is the methodological centre of the project: the composition step is arithmetic rather than inference, making it deterministic, unit-testable, and reproducible &mdash; properties the entailment layer will never have.</p>
+
+<p>For claims with universal force (<i>all</i>, <i>none</i>, <i>consistently</i>, <i>never</i>, <i>unlike X</i>), the <b>disconfirming-evidence sweep</b> (N3) examines the <b>uncited</b> remainder of <i>P</i> for counterexamples. This inverts the standard verification direction: the Critic searches for evidence that would <i>falsify</i> the claim rather than confirm it. It is the only way over-generalization becomes detectable, since a universal claim checked against its own cited passage cannot fail.</p>
+
+<p>T3 claims are not required to be entailed, only to be consistent with the evidence pool; survivors are retained and marked as inference rather than evidence. T4 claims are recorded in the verification log and passed through unchecked &mdash; exemption is auditable, stating exactly which sentences were never verified and why.</p>
+
+<p><b>Step D &mdash; Assertiveness calibration (N5).</b> Using the modality retained in Step A, the Critic compares claim strength against evidence strength along an explicit ladder (<i>suggests &lt; indicates &lt; shows &lt; demonstrates &lt; proves</i>), weighed against whether the evidence is single or converging and whether the source language is hedged or definitive. A claim whose modality exceeds what its evidence licenses is flagged <i>Overclaim</i>, with a repair hint proposing a downgrade rather than a deletion. Under-claiming is logged but not flagged, since it is not a hallucination.</p>
+
+<p><b>Step E &mdash; Intra-report consistency (N4).</b> A report-level check with no per-claim analogue. After per-claim verification, the Critic performs pairwise contradiction detection over the surviving claim set, gated by entity and topic overlap in code to avoid quadratic blow-up. A detected pair receives the verdict <i>Internally-Inconsistent</i>, and the payload carries <b>both</b> sentence indices and <b>both</b> passages &mdash; the Synthesizer must be told which two statements conflict, not merely that one is suspect.</p>
+
+<p><b>Step F &mdash; Dependency graph (N7).</b> A graph linking claim &rarr; atoms &rarr; passages &rarr; documents is built as a by-product of T2 decomposition. When an atom is invalidated in any round, every aggregative claim depending on it is automatically re-flagged, preventing the case where a constituent fact is corrected but the aggregative claim resting on it silently retains its old value.</p>
+
+<h2>5.4 Bounded Loop and Typed Escalation</h2>
+
+<p>Critic failures generate a targeted revision payload &mdash; sentence index, claim, type, passages, verdict, and a machine-readable repair hint &mdash; routed to the Synthesizer for span-local re-drafting. The report is never wholesale rejected and no open-ended debate is triggered. A hard iteration cap gives a deterministic upper bound on token cost and latency.</p>
+
+<p>Claims unresolved after the final round are surfaced with a <b>type-specific</b> label rather than one generic banner: <i>no supporting passage</i>; <i>aggregation not confirmed</i>; <i>counterexample found</i>; <i>inconsistent with section k</i>; <i>overclaim &mdash; evidence weaker than stated</i>; or <i>inference &mdash; not directly evidenced</i>. Escalation is treated as a <b>success state</b>: surfacing an honest uncertainty label is a correct outcome. Rather than asserting the iteration cap as prior work does, we derive it from the measured marginal-resolution curve.</p>
+
+<h2>5.5 Evaluation Methodology</h2>
+
+<p><b>Seeded-error harness (N8).</b> Clean drafts are deliberately corrupted with known errors at known indices, giving exact ground truth. The taxonomy is designed so that <b>six of eleven classes are undetectable by single-passage entailment by construction</b>, making the harness a direct test of our contribution rather than a general NLI benchmark.</p>
+
+<table>
+<tr><th style="width:8%;">ID</th><th style="width:54%;">Error class</th><th style="width:20%;">Baseline detects?</th><th>Targets</th></tr>
+<tr><td>E1</td><td>Numeric corruption (figures, percentages, dates)</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>E2</td><td>Attribution swap (correct fact, wrong source)</td><td>Partially</td><td>N6</td></tr>
+<tr><td>E3</td><td>Unsupported insertion (fluent claim, no support)</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>E4</td><td>Contradiction of the cited passage</td><td>Yes</td><td>&mdash;</td></tr>
+<tr><td>E5</td><td>Quantifier over-generalization</td><td><b>No</b></td><td>N3</td></tr>
+<tr><td>E6</td><td>Count / aggregation error (off-by-one)</td><td><b>No</b></td><td>N2</td></tr>
+<tr><td>E7</td><td>False cross-source contrast</td><td><b>No</b></td><td>N3</td></tr>
+<tr><td>E8</td><td>Fabricated trend</td><td><b>No</b></td><td>N2</td></tr>
+<tr><td>E9</td><td>Internal contradiction (two grounded claims conflict)</td><td><b>No</b></td><td>N4</td></tr>
+<tr><td>E10</td><td>Hedge stripping ("may suggest" &rarr; "demonstrates")</td><td><b>No</b></td><td>N5</td></tr>
+<tr><td>E11</td><td>Omission (contradicting passage silently dropped)</td><td><b>No</b></td><td>stretch</td></tr>
+</table>
+<p class="caption">Table 5: Seeded-error taxonomy.</p>
+
+<p><b>Metrics.</b> Catch rate is reported <i>per error class</i>, never aggregated &mdash; a single number would hide precisely the effect under test. False-positive rate is measured on uncorrupted drafts, reported overall and by claim type, since T4 over-flagging is the specific predicted pathology. A verdict confusion matrix covers all seven verdict values, including the E2-versus-E3 separation that tests N6; a router confusion matrix reports T4&rarr;T1 and T2&rarr;T1 misroutes separately. Cost and latency accompany accuracy in every results table.</p>
+
+<p><b>Ablation design.</b> The central experiment holds all variables constant and varies only the Critic configuration: <b>A</b> naive single-passage entailment (approximately the MARCH Checker, training-free); <b>B</b> adds the type router with T4 exemption; <b>C</b> adds composition checking, misattribution, and retraction propagation; <b>D</b> adds the disconfirming sweep; <b>E</b> adds intra-report consistency; <b>F</b> adds assertiveness calibration.</p>
+
+<p><b>Predictions stated in advance.</b> A&rarr;B reduces false-positive rate without loss of catch rate on E1&ndash;E4. C raises catch rate on E6 and E8 and separates E2 from E3. D raises catch rate on E5 and E7. E raises catch rate on E9 from zero; F raises catch rate on E10 from zero. Conditions A&ndash;D are expected to score <b>exactly zero</b> on E9 and E10, since none of them compares claims to one another or inspects modality.</p>
+
+<p><b>Supporting experiments.</b> An <i>oracle-retrieval ablation</i> (N9) runs the pipeline twice, with real retrieval and with gold passages injected; any gap is attributable to retrieval rather than the Critic &mdash; a confound unseparated throughout the reviewed literature. <i>Router validation</i> (N10) has two annotators label 200 held-out claims blind to router output, with Cohen's kappa on pre-adjudication labels. <i>Loop dynamics</i> (N11) measure marginal resolution and token cost per round, plus <b>error displacement</b> &mdash; new unsupported claims <i>introduced</i> by a revision, measured by re-verifying previously-clean spans, and unmeasured across the entire self-correction literature. A three-way <i>end-to-end comparison</i> against zero-shot RAG and multi-agent debate is evaluated for hallucination rate by annotators blind to condition.</p>
+
+<p><b>Falsifiable claims.</b> The project commits in advance to reporting outcomes whether positive or negative. The core claims are that composition checking raises catch rate on E6 and E8 substantially above a near-zero baseline, and that the disconfirming sweep does the same for E5 and E7. If both fail, the core contribution is falsified. Secondary claims concern type routing reducing false-positive rate without losing catch rate; consistency and assertiveness checks raising E9 and E10 detection above zero at usable error rates; misattribution separating E2 from E3 above chance; the taxonomy achieving sufficient inter-annotator agreement; sharp decay in marginal resolution per round; and an end-to-end hallucination reduction against both baselines at bounded cost.</p>
+
+<!-- ============ 6. SIMULATION PLATFORM ============ -->
+<div class="pagebreak"></div>
+<h1>6. Simulation Platform and Requirements</h1>
+
+<h2>6.1 Software Stack and Model Assignment</h2>
+
+<p>The implementation is Python 3.11+ with pinned dependencies. Ingestion performs layout-aware PDF extraction and chunking with stable identifiers; retrieval combines a local sentence-transformer embedding model with a local vector index and BM25. Orchestration uses a custom agent loop over typed, schema-validated interfaces, and composition operators are pure Python functions with deterministic unit tests. Experiments are configuration-driven, so adding an ablation condition requires no code change. Every model invocation is logged as structured JSON (model identifier, prompt hash, token counts, latency, cost, cache status), prompts live in versioned template files rather than inline literals, and a static HTML inspector renders claims colour-coded by type and verdict for manual review.</p>
+
+<p><b>No GPU cluster is required.</b> Embedding and optional local NLI models run on a standard laptop; generative and entailment inference is performed through a hosted API. This follows directly from the training-free design (G9).</p>
+
+<table>
+<tr><th style="width:30%;">Component</th><th style="width:18%;">Call volume</th><th style="width:22%;">Accuracy sensitivity</th><th>Resource</th></tr>
+<tr><td>Synthesizer</td><td>Low (1 per round)</td><td>High (output quality)</td><td>Highest-capability model tier</td></tr>
+<tr><td>Atomizer, Type router</td><td>Medium</td><td>Low (mechanical)</td><td>Economy model tier</td></tr>
+<tr><td>Entailment judge</td><td><b>Very high (~80%)</b></td><td><b>Critical</b></td><td>Mid model tier</td></tr>
+<tr><td>Composition operators</td><td>&mdash;</td><td>&mdash;</td><td><b>No model &mdash; executed in code</b></td></tr>
+<tr><td>Consistency pair gating</td><td>&mdash;</td><td>&mdash;</td><td><b>No model &mdash; executed in code</b></td></tr>
+<tr><td>Modality extraction</td><td>&mdash;</td><td>&mdash;</td><td><b>No model &mdash; lexicon lookup</b></td></tr>
+</table>
+<p class="caption">Table 6: Resource assignment by component.</p>
+
+<p>Exact model identifiers are pinned in configuration; floating aliases are prohibited, since a mid-project model update would silently invalidate all prior results. A fully local fallback configuration has been designed as a contingency &mdash; local embeddings, a local NLI model for entailment, and a locally hosted model for drafting &mdash; which removes API cost entirely at the price of entailment quality, a limitation that would then be stated explicitly.</p>
+
+<h2>6.2 Cost Model</h2>
+
+<p>Before optimisation a single report-round requires roughly 255 model invocations &mdash; about fifty for T1 entailment, forty for the constituent atoms of aggregative claims, a hundred for the disconfirming sweep, and the remainder for planning, synthesis, atomization, routing, defeasibility, assertiveness, and gated consistency pairs. A six-condition ablation across ten queries and three rounds therefore approaches 46,000 invocations.</p>
+
+<p>Four optimisations make this tractable. <b>Request batching</b> sends ten to twenty claims per invocation with structured output, cutting call count by roughly an order of magnitude. <b>Prompt caching</b> exploits repeated passage text at roughly one tenth the cost of uncached input. A <b>batch inference API</b> gives a further 50% reduction, applicable because the programme is entirely offline. A <b>local NLI pre-filter</b> resolves confident judgments locally, escalating only uncertain cases. With these applied, projected cost is in the range of tens of US dollars rather than hundreds.</p>
+
+<h2>6.3 Corpus and Annotation</h2>
+
+<p>The corpus comprises 40&ndash;60 arXiv papers on hallucination mitigation, multi-agent verification, attributed generation, and faithfulness evaluation, frozen and versioned before the evaluation harness is built &mdash; adding documents mid-experiment would invalidate all prior runs. A manifest records the arXiv identifier, version, and SHA-256 hash of each source. Between eight and twelve synthesis queries span single-topic survey, comparative survey, temporal trend, and known-contradiction shapes, with approximately ten human-checked reference reports supporting oracle-retrieval ground truth.</p>
+
+<p><b>Query design is a load-bearing dependency.</b> If the queries do not elicit aggregative claims, objectives N2 and N3 cannot be tested regardless of implementation quality. A pilot draft will therefore be generated and inspected before the corpus and query set are frozen.</p>
+
+<p>Two annotation studies are required. Router validation needs 200 held-out claims labelled independently by two annotators, blind to router output, at roughly four hours each. The end-to-end hallucination-rate evaluation needs approximately six hours per annotator on randomised, condition-stripped reports; blinding is necessary because annotators are invested in the outcome. The three-member team provides two independent annotators with a third available for adjudication. Annotation guidelines will be frozen, with at least five worked examples per claim type, before labelling begins.</p>
+
+<p>Because the project also targets an external publication, reproducibility is treated as a requirement: seeded and recorded runs, exact model identifiers logged per run, a published corpus manifest with hashes rather than redistributed PDFs, verbatim prompt templates, and a released seeded-error generator with annotation guidelines and gold labels.</p>
+
+<!-- ============ 7. CONCLUSION ============ -->
+<h1>7. Conclusion</h1>
+
+<h2>7.1 Contributions</h2>
+
+<p>This project addresses a specific and, we argue, under-recognised boundary of the current state of the art. Claim-level verification against cited evidence is effective and well-validated for short-form question answering. We have argued it is insufficient for long-form research synthesis &mdash; not because entailment models are inadequate, but because three classes of claim that dominate synthesis prose have truth conditions the operation does not address.</p>
+
+<p>The proposed contributions are a <b>claim-eligibility taxonomy</b> distinguishing claims that admit entailment checking from those that do not &mdash; an axis distinct from the evidence-status typologies in the literature; <b>composition verification</b>, evaluating aggregation operators deterministically in code over verified atoms rather than accepting them as asserted; a <b>disconfirming-evidence sweep</b> inverting the verification direction to search uncited evidence for counterexamples; <b>intra-report consistency checking</b>, addressing a failure mode that cannot occur in short-form output; <b>assertiveness calibration</b>, retaining modality through atomization; <b>misattribution as a distinct verdict</b>; and an <b>adversarially-designed evaluation harness</b> reporting per-class catch rate and false-positive rate by claim type, with an oracle ablation separating verifier from retrieval error and the first measurement of error displacement across correction rounds. The system operates training-free throughout.</p>
+
+<h2>7.2 Work Plan</h2>
+
+<p>At the time of this report, the project has completed its literature review, problem formulation, system design, evaluation protocol, and requirements specification. Implementation is organised into eleven phases with a committed core scope (Phases 1&ndash;7) and a conditional extended scope.</p>
+
+<table>
+<tr><th style="width:12%;">Phase</th><th style="width:50%;">Deliverable</th><th>Exit criterion</th></tr>
+<tr><td>1</td><td>Repository, frozen schemas, corpus ingestion, retrieval, pilot draft</td><td>Pilot drafts contain measurable aggregative claims</td></tr>
+<tr><td>2</td><td>Planner, Researcher, Synthesizer; baseline Critic and bounded loop</td><td>Condition A runs end-to-end</td></tr>
+<tr><td>3</td><td>Seeded-error harness, metrics, ablation runner, inspector</td><td>Harness complete before the mechanisms it evaluates</td></tr>
+<tr><td>4</td><td>Type router; inter-annotator agreement study</td><td>Condition B; acceptable Cohen's kappa</td></tr>
+<tr><td>5</td><td>Composition check, misattribution, dependency graph</td><td>Condition C</td></tr>
+<tr><td>6</td><td>Disconfirming sweep; core ablation and measurements</td><td>Conditions A&ndash;D measured</td></tr>
+<tr><td>7</td><td>Analysis and report</td><td><b>Core scope complete</b></td></tr>
+<tr><td>8&ndash;11</td><td>Consistency; assertiveness; full ablation; publication artifacts</td><td>Conditional on schedule</td></tr>
+</table>
+<p class="caption">Table 7: Implementation phases.</p>
+
+<p>Two sequencing constraints are non-negotiable. The evaluation harness is built <i>before</i> the mechanisms it evaluates, so that no mechanism is unconsciously fitted to its own test. The annotation study precedes every mechanism that depends on the taxonomy, so that an unreliable taxonomy surfaces before further work is built upon it.</p>
+
+<h2>7.3 Anticipated Limitations</h2>
+
+<p><b>Router error propagates.</b> The type router is load-bearing and constitutes a new failure surface; its accuracy bounds overall system performance. <b>The disconfirming sweep is bounded by the retrieval pool</b> &mdash; a counterexample in a document never retrieved is undetectable, so the mechanism reduces over-generalization error without eliminating it, and soundness is not claimed. <b>Retrieval remains the upstream bottleneck</b>, which the oracle ablation measures rather than removes.</p>
+
+<p><b>Assertiveness calibration has the fuzziest decision boundary</b> of any check in the system and is expected to show the highest false-positive rate; if it proves unusable as a revision trigger it will be reported as a diagnostic signal instead. <b>Entailment remains semantically fuzzy</b> &mdash; type routing narrows where this applies but does not remove it, and this is the honest floor of the approach. <b>Verification cost scales with claim complexity</b>, an aggregative claim costing roughly five entailment invocations plus a sweep against one for a naive verifier. Finally, <b>corpus boundedness is a scope condition</b>: open-domain application over noisy web-scale data would degrade retrieval precision and, through it, every mechanism depending on the retrieval pool.</p>
+
+<!-- ============ 8. REFERENCES ============ -->
+<h1>8. References</h1>
+
+<div class="refs">
+
+<p>[1] F. A. Kamelhar, "GSAR: Typed Grounding for Hallucination Detection and Recovery in Multi-Agent LLMs," arXiv preprint, April 2026.</p>
+
+<p>[2] Z. Li, Y. Zhang, P. Cheng, J. Song, M. Zhou, H. Li, S. Hu, Y. Qin, E. Zhao, X. Jiang, and G. Jiang, "MARCH: Multi-Agent Reinforced Self-Check for LLM Hallucination," Qwen Large Model Application Team, Alibaba, arXiv preprint, March 2026.</p>
+
+<p>[3] S. Jeong, Y. Choi, J. W. Kim, and B. Jang, "Tool-MAD: A Multi-Agent Debate Framework for Fact Verification with Diverse Tool Augmentation and Adaptive Retrieval," arXiv preprint, January 2026.</p>
+
+<p>[4] D. Sallami, S. Amri, and E. A&iuml;meur, "ClaimVerAgents: A Multi-Agent Retrieval-Augmented Claim Verification Framework," in Proc. IEEE/ACS Int. Conf. on Computer Systems and Applications (AICCSA), 2025.</p>
+
+<p>[5] Y. Yang, Y. Ma, H. Feng, Y. Cheng, and Z. Han, "Minimizing Hallucinations and Communication Costs: Adversarial Debate and Voting Mechanisms in LLM-Based Multi-Agents," Applied Sciences, vol. 15, no. 7, art. 3676, March 2025.</p>
+
+<p>[6] Y. Du, S. Li, A. Torralba, I. Mordatch, and J. B. Tenenbaum, "Improving Factuality and Reasoning in Language Models through Multiagent Debate," arXiv preprint, 2023; in Proc. Int. Conf. on Machine Learning (ICML), 2024.</p>
+
+<p>[7] S. Min, K. Krishna, X. Lyu, M. Lewis, W. Yih, P. W. Koh, M. Iyyer, L. Zettlemoyer, and H. Hajishirzi, "FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation," in Proc. EMNLP, 2023.</p>
+
+<p>[8] S. Es, J. James, L. Espinosa-Anke, and S. Schockaert, "RAGAS: Automated Evaluation of Retrieval Augmented Generation," in Proc. EACL, System Demonstrations, 2024.</p>
+
+<p>[9] J. Thorne, A. Vlachos, C. Christodoulopoulos, and A. Mittal, "FEVER: a Large-scale Dataset for Fact Extraction and VERification," in Proc. NAACL-HLT, 2018.</p>
+
+<p>[10] T. Gao, H. Yen, J. Yu, and D. Chen, "Enabling Large Language Models to Generate Text with Citations," in Proc. EMNLP, 2023.</p>
+
+<p>[11] L. Gao, Z. Dai, P. Pasupat, A. Chen, A. T. Chaganty, Y. Fan, V. Zhao, N. Lao, H. Lee, D.-C. Juan, and K. Guu, "RARR: Researching and Revising What Language Models Say, Using Language Models," in Proc. ACL, 2023.</p>
+
+<p>[12] A. Asai, Z. Wu, Y. Wang, A. Sil, and H. Hajishirzi, "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection," in Proc. ICLR, 2024.</p>
+
+<p>[13] J. Wei, C. Yang, X. Song, Y. Lu, N. Hu, D. Tran, D. Peng, R. Liu, D. Huang, C. Du, and Q. V. Le, "Long-form Factuality in Large Language Models," arXiv preprint, 2024.</p>
+
+<p>[14] Vectara, "HHEM: Hughes Hallucination Evaluation Model," model release and technical documentation, 2023&ndash;2024.</p>
+
+<p>[15] TruLens, "The RAG Triad: Context Relevance, Groundedness, and Answer Relevance," TruEra technical documentation, 2023.</p>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,114 @@
+# Synthesis queries (requirement DR-4).
+#
+# Four shapes, because the experiment only works if drafts contain the claim
+# types under test:
+#   single-topic   — a survey of one theme
+#   comparative    — forces claims across frameworks (counts, contrasts, comparisons)
+#   temporal       — forces trend claims
+#   tension        — the corpus contains a genuine disagreement (tests self-contradiction checks)
+#
+# `probes` are extra retrieval queries used by the pilot to widen evidence
+# coverage; the full pipeline replaces them with the Planner's sub-tasks.
+#
+# Queries are phrased so they work on the 6-paper seed corpus and on the full
+# 40–60 paper corpus once approved (D-3).
+
+version: q-v1
+
+queries:
+  - id: q01
+    shape: single-topic
+    text: >-
+      Survey how multi-agent debate and cross-examination between language models are used to
+      reduce hallucination.
+    probes:
+      - multiple model instances debate and revise their answers
+      - agents critique each other to improve factual accuracy
+
+  - id: q02
+    shape: comparative
+    text: >-
+      Compare the verification mechanisms used by recent multi-agent hallucination-mitigation
+      frameworks. How does each one decide whether a claim is supported?
+    probes:
+      - checker verifies claims against retrieved evidence
+      - judge agent decides the final verdict
+      - voting and consensus between agents
+
+  - id: q03
+    shape: comparative
+    text: >-
+      Compare how these frameworks bound cost: loop termination, iteration caps, compute
+      budgets, and stopping rules.
+    probes:
+      - maximum number of rounds or iterations
+      - compute budget and token cost
+      - stopping criterion and convergence
+
+  - id: q04
+    shape: comparative
+    text: >-
+      Which frameworks require model training and which operate purely at inference time? What
+      does training buy them?
+    probes:
+      - reinforcement learning training of agents
+      - prompting only without fine-tuning
+
+  - id: q05
+    shape: temporal
+    text: >-
+      How has the approach to verifying LLM outputs with multiple agents evolved from 2023 to 2026?
+    probes:
+      - early multi-agent debate approach
+      - recent evidence-grounded verification with tools and retrieval
+
+  - id: q06
+    shape: comparative
+    text: >-
+      How do these systems evaluate themselves — which benchmarks and metrics do they use, and do
+      they measure the error rate of their own verifier?
+    probes:
+      - benchmark datasets used in evaluation
+      - catch rate false positive rate of the verifier
+      - accuracy improvement over baselines
+
+  - id: q07
+    shape: tension
+    text: >-
+      Does agreement between multiple language-model agents reliably indicate a correct answer?
+      Summarise the evidence for and against.
+    probes:
+      - debate converges to a correct consensus answer
+      - confirmation bias when the verifier sees the original answer
+      - agents converge on the same wrong answer
+    known_tension: >-
+      Du et al. report that debate converges on more accurate answers; MARCH argues that a checker
+      exposed to the answer it is checking suffers confirmation bias.
+
+  - id: q08
+    shape: single-topic
+    text: >-
+      Survey the role of retrieval and external tools (search APIs, retrieval-augmented generation)
+      in multi-agent fact verification.
+    probes:
+      - web search API used by an agent
+      - retrieval augmented generation module
+      - adaptive query reformulation
+
+  - id: q09
+    shape: comparative
+    text: >-
+      How do these frameworks handle cases where the evidence is insufficient or no verdict can be
+      reached?
+    probes:
+      - not enough information abstention
+      - unresolved claims escalation or replanning
+
+  - id: q10
+    shape: comparative
+    text: >-
+      What limitations do the authors of these frameworks acknowledge, and which limitations recur
+      across papers?
+    probes:
+      - limitations of the proposed approach
+      - future work and open problems
