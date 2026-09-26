@@ -29,7 +29,7 @@ from .cache import ResponseCache, cache_key
 from .ledger import Ledger, LedgerEntry
 from .pricing import cost_usd
 from .prompts import Prompt
-from .provider import LLMRequest, LLMResponse, Provider
+from .provider import ContextTooLong, LLMRequest, LLMResponse, Provider, QuotaExhausted
 from .schema_compat import to_structured_output_schema
 
 T = TypeVar("T", bound=BaseModel)
@@ -44,6 +44,7 @@ class RoleConfig(BaseModel):
     model: str
     max_tokens: int = 8000
     effort: str | None = None
+    digest: str | None = None  # local models: pin the exact build (prefix of the Ollama digest)
 
     @field_validator("model")
     @classmethod
@@ -60,17 +61,25 @@ class RoleConfig(BaseModel):
         return v
 
 
+class LocalSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str = "http://localhost:11434"
+    num_ctx: int = 32768  # context window; Ollama's default is small and truncates silently
+
+
 class ModelsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     provider: str = "anthropic"
     roles: dict[str, RoleConfig]
     budget_usd_per_run: float | None = None
+    local: LocalSettings | None = None  # provider: ollama
 
     @field_validator("provider")
     @classmethod
     def _known_provider(cls, v: str) -> str:
-        if v not in {"anthropic", "gemini"}:
+        if v not in {"anthropic", "gemini", "ollama"}:
             raise ValueError(f"unknown provider {v!r}")
         return v
 
@@ -99,6 +108,14 @@ class RefusalError(GatewayError):
 
 class OutputValidationError(GatewayError):
     pass
+
+
+class TruncatedOutput(OutputValidationError):
+    """The model hit its output-token limit, so the answer is cut off.
+
+    On models that think before answering, thinking tokens count toward the
+    limit, so a large batch can run out before its JSON is closed.
+    """
 
 
 @dataclass
@@ -195,6 +212,13 @@ class Gateway:
             self.ledger.append(LedgerEntry(ts=Ledger.now(), model=resp.model, status="refusal", **tokens, **base))
             raise RefusalError(f"{prompt.ref}: model declined the request", call_id)
 
+        if resp.stop_reason == "max_tokens":
+            # Never cached: a cut-off answer would otherwise be replayed forever.
+            self.ledger.append(LedgerEntry(ts=Ledger.now(), model=resp.model, status="truncated",
+                                           error=f"hit max_tokens={rc.max_tokens}", **tokens, **base))
+            raise TruncatedOutput(f"{prompt.ref}: output cut off at max_tokens={rc.max_tokens} "
+                                  f"({resp.output_tokens} output tokens incl. thinking)", call_id)
+
         value = None
         if out is not None:
             try:
@@ -219,37 +243,52 @@ class Gateway:
         The prompt must contain ``${items}``; it receives a JSON array of the
         items, each tagged with an ``index``. The model returns one result per
         index. A failed request fails only its own items, and an item the
-        model skipped or duplicated fails alone — never the whole batch.
+        model skipped or duplicated fails alone — never the whole batch. A
+        request cut off at the output limit, or too long for a local model's
+        context window, is split in half and retried, down to single items.
         """
         if per_request < 1:
             raise ValueError("per_request must be >= 1")
         wrapper = _batch_model(out_item)
         results: list[ItemResult[T] | None] = [None] * len(items)
-
         for start in range(0, len(items), per_request):
             idxs = list(range(start, min(start + per_request, len(items))))
-            payload = json.dumps([{"index": i, **items[i]} for i in idxs], ensure_ascii=False, indent=1)
-            try:
-                res = self.call(role, prompt, {**(shared or {}), "items": payload}, out=wrapper, n_items=len(idxs))
-            except BudgetExceeded:
-                raise  # the whole run must stop, not just this batch
-            except GatewayError as e:
+            self._batch_chunk(role, prompt, items, idxs, out_item, wrapper, shared, results)
+        return results  # type: ignore[return-value]
+
+    def _batch_chunk(self, role, prompt, items, idxs, out_item, wrapper, shared, results) -> None:
+        payload = json.dumps([{"index": i, **items[i]} for i in idxs], ensure_ascii=False, indent=1)
+        try:
+            res = self.call(role, prompt, {**(shared or {}), "items": payload}, out=wrapper, n_items=len(idxs))
+        except BudgetExceeded:
+            raise  # the whole run must stop, not just this batch
+        except GatewayError as e:
+            too_big = isinstance(e, TruncatedOutput) or isinstance(e.__cause__, ContextTooLong)
+            if isinstance(e.__cause__, QuotaExhausted):
+                raise  # every later batch would fail too — stop the run, don't mark claims one by one
+            if not too_big:
                 for i in idxs:
                     results[i] = ItemResult(value=None, error=str(e), call_id=e.call_id)
-                continue
+                return
+            if len(idxs) > 1:
+                mid = len(idxs) // 2
+                self._batch_chunk(role, prompt, items, idxs[:mid], out_item, wrapper, shared, results)
+                self._batch_chunk(role, prompt, items, idxs[mid:], out_item, wrapper, shared, results)
+                return
+            results[idxs[0]] = ItemResult(value=None, error=str(e), call_id=e.call_id)
+            return
 
-            seen: dict[int, list[Any]] = {}
-            for r in res.value.results:
-                seen.setdefault(r.index, []).append(r)
-            for i in idxs:
-                got = seen.get(i, [])
-                if len(got) == 1:
-                    fields = {k: getattr(got[0], k) for k in out_item.model_fields}
-                    results[i] = ItemResult(value=out_item(**fields), error=None, call_id=res.call_id)
-                else:
-                    why = "missing from model output" if not got else f"returned {len(got)} times"
-                    results[i] = ItemResult(value=None, error=f"item {i} {why}", call_id=res.call_id)
-        return results  # type: ignore[return-value]
+        seen: dict[int, list[Any]] = {}
+        for r in res.value.results:
+            seen.setdefault(r.index, []).append(r)
+        for i in idxs:
+            got = seen.get(i, [])
+            if len(got) == 1:
+                fields = {k: getattr(got[0], k) for k in out_item.model_fields}
+                results[i] = ItemResult(value=out_item(**fields), error=None, call_id=res.call_id)
+            else:
+                why = "missing from model output" if not got else f"returned {len(got)} times"
+                results[i] = ItemResult(value=None, error=f"item {i} {why}", call_id=res.call_id)
 
 
 # ---------------------------------------------------------------- helpers

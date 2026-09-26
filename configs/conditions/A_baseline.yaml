@@ -1,0 +1,5 @@
+# Condition A — the baseline: standard single-passage checking.
+# Every checker flag off, so every claim is treated as T1 and checked only
+# against the passages it cites. Later conditions each add one capability.
+condition: A
+checker: {}

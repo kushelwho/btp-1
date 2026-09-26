@@ -1,0 +1,9 @@
+# Development sweep: the two real q02 drafts, UNVERIFIED — plumbing and a
+# first look only. Real sweeps list verified base drafts and keep
+# require_verified: true (the default).
+name: phase3-dev
+base_drafts: [q02-dev, q02-pilot]
+seeds: [0, 1, 2]
+conditions: [A]
+max_errors: 8
+require_verified: false

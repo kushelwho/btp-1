@@ -1,0 +1,7 @@
+# Condition A with oracle retrieval (N9): identical to A except that every
+# sub-task's pool is the human-confirmed gold passages for the question
+# (configs/gold/<query>.yaml) instead of search results. The gap between A
+# and A-oracle is attributable to retrieval, not to the checker.
+condition: A-oracle
+retrieval: {oracle: true}
+checker: {}

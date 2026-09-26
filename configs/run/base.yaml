@@ -1,0 +1,25 @@
+# Settings shared by every condition. A condition file overlays this
+# (configs/conditions/*.yaml) and may change only what it names.
+# The resolved config is hashed into every run (RunState.config_hash).
+
+models: configs/models.yaml
+
+retrieval:
+  k_per_query: 12        # hits per search query
+  k_per_subtask: 12      # pool size per sub-task after merging its queries
+  queries_per_subtask: 3 # model-written queries, on top of the sub-task question itself
+
+planner:
+  min_subtasks: 5        # FR-2.3
+  max_subtasks: 8
+
+synthesizer:
+  uncited_retries: 1     # regenerate once if factual sentences come back uncited (FR-4.2)
+
+checker:
+  batch_size: 40         # claims per verification call (MR-2); large because the free tier counts requests, not tokens
+  atomize_batch_size: 50 # sentences per atomization call; a cut-off batch is split and retried automatically
+  uncertain_below: 0.55  # abstain below this confidence (FR-7.9)
+
+loop:
+  max_rounds: 3          # FR-11.1 — revisited in Phase 3 from the measured curve (N11)

@@ -1,0 +1,10 @@
+# E9 (internal contradiction) pairs, written by a person for each base draft.
+# Each pair: a sentence of the draft (target), a new sentence that contradicts
+# it while citing a real passage that supports its *other* half, and where to
+# place it (far from the target, so the conflict spans the report).
+#
+# <base_id>:
+#   - target: r1s0012
+#     contradicting: "No reviewed framework bounds its correction loop."
+#     cite: gsar-2026#p7c2
+#     after: r1s0040

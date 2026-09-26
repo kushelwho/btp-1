@@ -1,0 +1,20 @@
+# DEVELOPMENT ONLY — plumbing checks against a real model when the pinned
+# models' daily free-tier quota is used up. Results from this config are
+# never reported: it changes the config hash, so its runs get their own IDs.
+# The pinned configuration is configs/models.yaml.
+provider: gemini
+
+roles:
+  synthesizer:
+    model: gemini-3.6-flash
+    max_tokens: 32000
+    effort: high
+  economy:
+    model: gemini-3.1-flash-lite
+    max_tokens: 8000
+  judge:
+    model: gemini-3.6-flash
+    max_tokens: 32000   # thinking counts toward this limit; a batch of 15 checks used ~8k
+    effort: high
+
+budget_usd_per_run: 2.00

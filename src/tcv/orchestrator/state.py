@@ -12,7 +12,9 @@ truncated file that a resumed run would then trust.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 from tcv.schemas import RetrievalPool, RoundState, RunState
 
@@ -32,6 +34,14 @@ class StateStore:
     @property
     def ledger_path(self) -> Path:
         return self.root / "calls.jsonl"
+
+    def write_text(self, name: str, text: str) -> Path:
+        path = self.root / name
+        _atomic_write(path, text)
+        return path
+
+    def write_json(self, name: str, data: Any) -> Path:
+        return self.write_text(name, json.dumps(data, indent=1, ensure_ascii=False, default=str))
 
     # -- pools
     def save_pool(self, pool: RetrievalPool) -> None:

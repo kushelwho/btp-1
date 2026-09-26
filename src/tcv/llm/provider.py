@@ -1,10 +1,11 @@
 """Model providers behind a single interface.
 
 The gateway talks only to ``Provider``. This module is the one place a
-provider SDK (Anthropic, Google Gen AI) is imported; the fake provider makes
+provider SDK (Anthropic, Google Gen AI) or a local model server (Ollama) is
+reached; the fake provider makes
 the whole pipeline testable offline and deterministically. A local-model
 provider (the fully-local budget path) would slot in here without any
-caller changing.
+caller changing — ``OllamaProvider`` is that path.
 """
 
 from __future__ import annotations
@@ -53,6 +54,13 @@ class Provider(Protocol):
 
 class ProviderError(RuntimeError):
     pass
+
+
+class ContextTooLong(ProviderError):
+    """The prompt would not fit a local model's context window (it would be silently truncated).
+
+    The gateway splits a batch that raises this, like one cut off at max_tokens.
+    """
 
 
 class QuotaExhausted(ProviderError):
@@ -146,9 +154,10 @@ class GeminiProvider:
       gateway never caches them.
     * Retries are handled here rather than by the SDK, because the two 429s
       need opposite treatment: a per-minute quota is waited out, a daily
-      quota raises ``QuotaExhausted`` at once. On the free tier every
-      attempt counts against the daily cap, so "503 high demand" gets only
-      a few, widely spaced retries.
+      quota raises ``QuotaExhausted`` at once. On the free tier failed
+      attempts also count against the daily cap, so "503 high demand" gets
+      one retry after a minute; anything still failing is re-sent on the
+      next run from where it stopped (finished calls replay from cache).
     """
 
     name = "gemini"
@@ -158,8 +167,8 @@ class GeminiProvider:
     _REFUSAL = frozenset({"SAFETY", "RECITATION", "LANGUAGE", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"})
     _TRANSIENT = frozenset({408, 500, 502, 503, 504})
 
-    def __init__(self, api_key: str | None = None, max_retries: int = 3, timeout: float = 600.0,
-                 backoff_s: float = 20.0, sleep: Callable[[float], None] | None = None):
+    def __init__(self, api_key: str | None = None, max_retries: int = 1, timeout: float = 600.0,
+                 backoff_s: float = 60.0, sleep: Callable[[float], None] | None = None):
         import time
 
         from google import genai
@@ -267,10 +276,102 @@ def _enum_name(v: Any) -> str:
     return getattr(v, "name", None) or str(v)
 
 
-PROVIDERS = {"anthropic": AnthropicProvider, "gemini": GeminiProvider}
+class OllamaProvider:
+    """A local model served by Ollama (budget path B: no quota, no per-call cost).
+
+    Uses Ollama's native ``/api/chat`` rather than its OpenAI-compatible
+    endpoint, because it exposes what the pipeline needs:
+
+    * ``num_ctx`` — Ollama's default context window is a few thousand tokens
+      and it *silently truncates* longer prompts. Draft prompts are ~20k
+      tokens, so the window is set explicitly, and a prompt estimated to
+      exceed it is refused rather than truncated.
+    * ``think`` — thinking is on only for roles with an ``effort``
+      (checking claims), off for mechanical steps, which is the main speed lever.
+    * ``format`` — the JSON schema constrains decoding, so a small model
+      cannot drift out of the output format.
+    * digests — a tag such as ``qwen3:8b`` can be re-pointed at a newer build.
+      The digest is recorded with every response, and if the config pins one,
+      a mismatch refuses to run: results never silently change model.
+    """
+
+    name = "ollama"
+    _CHARS_PER_TOKEN = 3.5  # a little conservative for English (~4); the post-check below catches the rest
+
+    def __init__(self, host: str = "http://localhost:11434", num_ctx: int = 32768, pinned: dict[str, str] | None = None,
+                 timeout: float = 1800.0, seed: int = 0, client: Any = None):
+        import httpx
+
+        self._httpx = httpx
+        self._client = client or httpx.Client(base_url=host, timeout=timeout)
+        self._num_ctx = num_ctx
+        self._pinned = pinned or {}
+        self._seed = seed
+        self._digests: dict[str, str] = {}
+
+    def _digest(self, model: str) -> str:
+        if model not in self._digests:
+            try:
+                tags = self._client.get("/api/tags").json().get("models", [])
+            except self._httpx.ConnectError as e:
+                raise ProviderError("Ollama is not running — open the Ollama app (menu-bar llama icon)") from e
+            found = {m["name"]: m.get("digest", "") for m in tags}
+            if model not in found:
+                raise ProviderError(f"model {model!r} is not downloaded — run: ollama pull {model}")
+            digest = found[model]
+            want = self._pinned.get(model)
+            if want and not digest.startswith(want):
+                raise ProviderError(f"{model} is now build {digest[:12]}, but the config pins {want} — "
+                                    f"results would silently change model; re-pin deliberately if intended")
+            self._digests[model] = digest
+        return self._digests[model]
+
+    def complete(self, req: LLMRequest) -> LLMResponse:
+        digest = self._digest(req.model)
+        est = (len(req.system) + len(req.user)) / self._CHARS_PER_TOKEN
+        if est + req.max_tokens > self._num_ctx:
+            raise ContextTooLong(f"prompt (~{est:,.0f} tokens) plus output ({req.max_tokens:,}) may exceed the "
+                                 f"context window num_ctx={self._num_ctx:,}; Ollama would silently truncate it")
+        messages = ([{"role": "system", "content": req.system}] if req.system else []) + \
+                   [{"role": "user", "content": req.user}]
+        body: dict[str, Any] = {
+            "model": req.model, "messages": messages, "stream": False, "think": req.effort is not None,
+            "options": {"num_ctx": self._num_ctx, "num_predict": req.max_tokens, "seed": self._seed},
+            "keep_alive": "30m",
+        }
+        if req.output_schema is not None:
+            body["format"] = req.output_schema
+        try:
+            r = self._client.post("/api/chat", json=body)
+        except self._httpx.ConnectError as e:
+            raise ProviderError("Ollama is not running — open the Ollama app (menu-bar llama icon)") from e
+        r.raise_for_status()
+        data = r.json()
+        used = (data.get("prompt_eval_count") or 0) + (data.get("eval_count") or 0)
+        if used >= self._num_ctx:
+            raise ContextTooLong(f"{req.model} used {used:,} tokens of a {self._num_ctx:,} window — the prompt was "
+                                 "probably truncated; not using this answer")
+        msg = data.get("message") or {}
+        stop = {"stop": "end_turn", "length": "max_tokens"}.get(data.get("done_reason"), data.get("done_reason"))
+        return LLMResponse(
+            text=msg.get("content", ""), model=data.get("model", req.model), stop_reason=stop,
+            input_tokens=data.get("prompt_eval_count", 0) or 0, output_tokens=data.get("eval_count", 0) or 0,
+            raw={"digest": digest, "thinking_chars": len(msg.get("thinking") or ""),
+                 "eval_duration_s": (data.get("eval_duration") or 0) / 1e9,
+                 "prompt_eval_duration_s": (data.get("prompt_eval_duration") or 0) / 1e9},
+        )
 
 
-def make_provider(name: str) -> Provider:
+PROVIDERS = {"anthropic": AnthropicProvider, "gemini": GeminiProvider, "ollama": OllamaProvider}
+
+
+def make_provider(name: str, models: Any = None) -> Provider:
+    """``models`` (a ModelsConfig) carries per-provider settings, e.g. Ollama's host, window and pinned digests."""
+    if name == "ollama":
+        local = getattr(models, "local", None)
+        pinned = {r.model: r.digest for r in (models.roles.values() if models else []) if r.digest}
+        return OllamaProvider(host=local.host if local else "http://localhost:11434",
+                              num_ctx=local.num_ctx if local else 32768, pinned=pinned)
     try:
         return PROVIDERS[name]()
     except KeyError:

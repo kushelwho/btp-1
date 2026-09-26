@@ -1,0 +1,29 @@
+# Local models via Ollama (budget path B) — no quota, no per-call cost.
+# Run with:  uv run tcv run --query q02 --condition A --models configs/models.local.yaml
+#
+# Thinking is ON only where an `effort` is set (checking claims, where
+# accuracy matters) and OFF for mechanical steps and drafting, which is the
+# main speed lever on a 16 GB M4.
+#
+# `digest` pins the exact model build: an Ollama tag can be re-pointed at a
+# newer build, and a mismatch refuses to run. Fill it in after `ollama pull`
+# (first 12 characters of the digest from `ollama list`).
+provider: ollama
+
+local:
+  host: http://localhost:11434
+  num_ctx: 32768      # draft prompts are ~20k tokens; Ollama's small default would truncate them silently
+
+roles:
+  synthesizer:
+    model: qwen3:8b
+    max_tokens: 6000
+  economy:
+    model: qwen3:8b
+    max_tokens: 4000
+  judge:
+    model: qwen3:8b
+    max_tokens: 12000   # thinking on: allow room for reasoning over a batch
+    effort: high        # → think: true
+
+budget_usd_per_run: 2.00   # irrelevant locally (cost is $0), kept so every config has a cap

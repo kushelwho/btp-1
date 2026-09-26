@@ -32,7 +32,7 @@ class LedgerEntry(BaseModel):
     cost_usd: float = 0.0
     latency_s: float = 0.0
     local_cache_hit: bool = False
-    status: str  # ok | refusal | invalid_output | error | budget
+    status: str  # ok | refusal | invalid_output | truncated | error | budget
     error: str | None = None
 
 

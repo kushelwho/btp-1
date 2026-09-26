@@ -42,6 +42,7 @@ PRICES: dict[str, Price] = {
     "gemini-2.5-pro": Price(1.25, 10.00),  # prompts <= 200k tokens
     "gemini-2.5-flash": Price(0.30, 2.50),
     "gemini-2.5-flash-lite": Price(0.10, 0.40),
+    "gemma-4-31b-it": Price(0.0, 0.0),  # open weights; no paid price on the Gemini API
     "fake": Price(0.0, 0.0),  # test provider
 }
 
@@ -52,6 +53,8 @@ class UnknownModelPrice(KeyError):
 
 def cost_usd(model: str, input_tokens: int, output_tokens: int, cache_read: int = 0, cache_write: int = 0,
              batch: bool = False) -> float:
+    if model not in PRICES and ":" in model and "/" not in model:
+        return 0.0  # an Ollama tag ("qwen3:8b"): a local model, no per-call charge
     try:
         p = PRICES[model]
     except KeyError:

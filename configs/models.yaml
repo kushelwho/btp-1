@@ -1,27 +1,34 @@
-# Pinned model per role (budget path A — hosted API, Google Gemini; D-1, 2026-09-26).
+# Pinned model per role — Gemini API FREE TIER (D-1 Gemini; D-8 billing off, 2026-09-26).
 # Never use a floating alias (no "-latest", no "-preview"): a mid-project model
 # update would silently make every earlier result incomparable. Change only by
 # explicit team decision, and bump the config so runs record the change.
-# The Anthropic equivalent is kept in models.anthropic.yaml.
+#
+# The free tier allows ~20 requests per model per day on Gemini models, and
+# every quota is per model, so the roles are spread across models:
+#   * the drafter makes few calls, so it gets the strongest Flash;
+#   * the judge makes most calls, so it gets its own Flash quota — and being a
+#     different model from the drafter, it never grades its own writing;
+#   * the high-volume mechanical steps run on open-weight Gemma 4.
+# The Claude alternative is kept in models.anthropic.yaml.
 provider: gemini
 
 roles:
-  # Drafting the report: few calls, output quality matters most.
+  # Drafting and revising the report: ~3 calls per run, quality matters most.
   synthesizer:
     model: gemini-3.8-flash
     max_tokens: 32000
     effort: high        # → thinking_level HIGH
 
-  # Planning, claim splitting, claim sorting: mechanical, moderate volume.
+  # Planning, search queries, claim splitting: mechanical, the most calls.
   economy:
-    model: gemini-3.1-flash-lite
+    model: gemma-4-31b-it
     max_tokens: 8000
 
-  # Checking claims against passages: ~80% of all calls, accuracy-critical.
+  # Checking claims against passages: accuracy-critical.
   judge:
-    model: gemini-3.8-flash
-    max_tokens: 8000
+    model: gemini-3.7-flash
+    max_tokens: 60000   # thinking counts toward this; ~700 tokens per claim at 40 claims per call
     effort: high
 
-# Hard ceiling per run (list prices); the gateway refuses new calls once reached.
+# Hard ceiling per run (list prices; the free tier's real charge is $0).
 budget_usd_per_run: 2.00

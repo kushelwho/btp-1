@@ -8,7 +8,7 @@ B.Tech project, Netaji Subhas University of Technology (NSUT), New Delhi.
 
 > **In one sentence:** we build a system that writes a research report from a fixed set of papers and then checks every claim in it. Before checking a claim, it first works out *what kind of check that claim needs*, because the sentences that matter most in a report can't be verified the way today's fact-checkers verify them.
 
-**Status:** Phase 1 of 7 (foundation) is complete apart from two steps waiting on team decisions. See [Current status](#7-current-status).
+**Status:** Phases 1–3 are built (foundation, the full pipeline with the baseline checker, and the evaluation harness). Their final live runs wait on API access, and several steps wait on team reviews. See [`checklist.md`](checklist.md).
 
 ---
 
@@ -156,7 +156,7 @@ Compared with the papers we build on (GSAR, MARCH, Tool-MAD, ClaimVerAgents, Du 
 |---|---|
 | Paper ingestion | PDFs are turned into clean page text: headers, page numbers, reference lists and publisher sidebars are removed, and appendices are kept. The text is split into ~180-word **chunks** with exact character positions, so every citation traces back to the source text. |
 | Search | **Hybrid retrieval**: keyword search (**BM25**) plus meaning-based search (**embeddings**, `bge-small-en-v1.5`), merged by **reciprocal rank fusion**. Runs locally on CPU, so results are reproducible. |
-| Model gateway | One entry point for all model calls, with a response cache, a per-call cost log, a budget kill-switch, batching, and quota handling. Models in use: **Gemini 3.8 Flash** (writing and judging) and **Gemini 3.1 Flash Lite** (mechanical steps). A Claude setup is kept as an alternative. |
+| Model gateway | One entry point for all model calls, with a response cache, a per-call cost log, a budget kill-switch, batching, and quota handling. Runs on the **free tier** of the Gemini API. Models in use: **Gemini 3.8 Flash** (writing), **Gemini 3.7 Flash** (checking claims, so no model grades its own writing), and open-weight **Gemma 4 31B** (mechanical steps). A Claude setup is kept as an alternative. |
 | Data structures | Every object passed between components (claims, verdicts, fix-lists, …) is defined once, validated, and **frozen**: a test fails if one changes without a version bump. |
 | Corpus | 6 seed papers (382 chunks) ingested. 48 more candidate papers, **all 48 arXiv IDs confirmed**, are waiting on the team's keep/drop decision. |
 | Tests | 210 fast tests plus 4 integration tests over the real papers, and 4 enforced architecture rules. |
@@ -202,8 +202,8 @@ One phase is about one week.
 | Phase | Work | Status |
 |---|---|---|
 | 1 | Foundation: ingestion, search, model gateway, data structures, pilot | ✅ Built (pilot and corpus freeze pending team input) |
-| 2 | Planner / Researcher / Synthesizer pipeline + baseline checker (the standard method) | Next |
-| 3 | Seeded-error test set, built *before* the mechanisms it tests | |
+| 2 | Planner / Researcher / Synthesizer pipeline + baseline checker (the standard method) | ✅ Built; first live run done, full exit gate waits on API access |
+| 3 | Seeded-error test set, built *before* the mechanisms it tests | ✅ Built offline; live sweep and team reviews pending |
 | 4 | Claim-type sorter + human agreement study | |
 | 5 | Set-claim checking, misattribution, claim dependency tracking | |
 | 6 | Counterexample search + core ablation | |
@@ -271,9 +271,17 @@ Source PDFs live in `papers/` (git-ignored). Everything under `data/` is regener
 ```sh
 uv run tcv ingest                 # extract, chunk and index the corpus in configs/corpus.yaml
 uv run tcv search "your query"    # hybrid search over the corpus
+uv run tcv run --query q02 --condition A   # full pipeline: plan, research, draft, check, revise
+uv run tcv run --query all --condition A   # every query; finished runs are skipped, broken ones resume
 uv run tcv pilot --dry-run        # build pilot prompts and estimate cost; calls no model
 uv run tcv pilot                  # draft the pilot reports and screen them (needs an API key)
 uv run tcv pilot --models configs/models.anthropic.yaml   # same, on Claude (needs ANTHROPIC_API_KEY)
+uv run tcv inspect <run_id>        # HTML page: claims coloured by verdict, passages on hover
+uv run tcv dynamics               # what each revision round achieved, for finished runs
+uv run tcv base add --run <run_id> # capture a draft as an (unverified) base for planted-error tests
+uv run tcv seed preview <base_id>  # show planted errors, original beside corrupted
+uv run tcv sweep run configs/sweeps/phase3-dev.yaml   # planted-error sweep → metrics + report
+uv run tcv gold propose --query q02   # candidate gold passages for oracle runs
 uv run tcv verify-corpus          # check source PDFs against the manifest hashes
 uv run tcv freeze                 # freeze the corpus version (after team approval)
 uv run tcv fetch --check          # confirm candidate papers' arXiv IDs and titles
@@ -296,11 +304,12 @@ src/tcv/
   corpus/       PDF → page text → chunks with exact character spans; manifest; arXiv fetch
   retrieval/    local embeddings + BM25, fused by reciprocal rank (Researcher-only)
   llm/          model gateway: providers (Gemini, Anthropic), prompts, cache, cost log, budget, batching
-  agents/       Researcher, draft parser (Planner and Synthesizer arrive in Phase 2)
-  checker/      claim-type word patterns (the full Checker arrives in Phases 2–6)
-  orchestrator/ run-state persistence (the loop arrives in Phase 2)
-  eval/         query set, pilot screen
-configs/        corpus, models, queries, candidate papers
+  agents/       Planner, Researcher (sole search access), Synthesizer (draft + targeted revise), draft parser
+  checker/      atomizer, T1 check, pipeline and fix-list; claim-type word patterns (later mechanisms in Phases 4–6)
+  orchestrator/ the run loop, escalation labels and report rendering, run-state persistence
+  inspect/      the HTML run inspector
+  eval/         planted errors, metrics, sweep runner, loop dynamics, base drafts, gold passages, pilot
+configs/        corpus, models, queries, candidate papers; run/ base settings; conditions/ A–F overlays
 prompts/        versioned prompt templates
 tests/          unit, contract (architecture rules), integration (slow)
 ```
@@ -314,4 +323,5 @@ tests/          unit, contract (architecture rules), integration (slow)
 | [`architecture.md`](architecture.md) | How it's built: components, data structures, contracts |
 | [`roadmap.md`](roadmap.md) | Phase-by-phase plan and where team input is needed |
 | [`checklist.md`](checklist.md) | Current phase, ticked off as work completes |
+| [`annotation_guideline.md`](annotation_guideline.md) | How to label claim types T1–T4 (draft, for the Phase 4 study) |
 | [`report/mse-report.md`](report/mse-report.md) | Mid-semester evaluation report |

@@ -514,3 +514,161 @@ def test_gemini_client_errors_are_not_retried(monkeypatch):
     with pytest.raises(errors.ClientError):
         prov.complete(REQ)
     assert sleeps == []
+
+
+# ---------------------------------------------------------------- truncation
+
+
+def _truncating(limit_items):
+    """Fake model that runs out of output tokens on batches larger than ``limit_items``."""
+
+    def respond(req):
+        items = json.loads(req.user[req.user.index("["): req.user.rindex("]") + 1])
+        if len(items) > limit_items:
+            return LLMResponse(text='{"results": [{"index": 0, "verdict": "o', model="fake", stop_reason="max_tokens",
+                               output_tokens=8000)
+        return {"results": [{"index": it["index"], "verdict": "ok"} for it in items]}
+
+    return respond
+
+
+def test_truncated_output_is_logged_and_never_cached(tmp_path):
+    from tcv.llm.gateway import TruncatedOutput
+
+    gw, _ = make_gateway(tmp_path, _truncating(0))
+    with pytest.raises(TruncatedOutput, match="max_tokens"):
+        gw.call("judge", BATCH_PROMPT, {"items": '[{"index": 0}]'}, out=Verdict)
+    assert not list((tmp_path / "cache").rglob("*.json"))
+    assert json.loads((tmp_path / "calls.jsonl").read_text().splitlines()[-1])["status"] == "truncated"
+
+
+def test_batch_cut_off_at_the_limit_is_split_until_it_fits(tmp_path):
+    gw, provider = make_gateway(tmp_path, _truncating(4))
+    results = gw.call_batch("judge", BATCH_PROMPT, [{"claim": f"c{i}"} for i in range(15)], Verdict, per_request=15)
+    assert all(r.ok and r.value.verdict == "ok" for r in results)
+    assert len(provider.requests) == 1 + 2 + 4  # 15 → 7 + 8 → 3 + 4 + 4 + 4
+
+
+def test_daily_quota_inside_a_batch_stops_the_batch_instead_of_failing_items(tmp_path):
+    from tcv.llm.gateway import GatewayError
+    from tcv.llm.provider import QuotaExhausted
+
+    def respond(req):
+        raise QuotaExhausted("gemini-3.7-flash: daily quota exhausted")
+
+    gw, provider = make_gateway(tmp_path, respond)
+    with pytest.raises(GatewayError) as ei:
+        gw.call_batch("judge", BATCH_PROMPT, [{"claim": f"c{i}"} for i in range(6)], Verdict, per_request=2)
+    assert isinstance(ei.value.__cause__, QuotaExhausted)
+    assert len(provider.requests) == 1, "later batches must not be attempted"
+
+
+# ---------------------------------------------------------------- Ollama (local) provider, fake server
+
+
+def _ollama(handler, **kw):
+    import httpx
+
+    from tcv.llm.provider import OllamaProvider
+
+    client = httpx.Client(base_url="http://ollama.test", transport=httpx.MockTransport(handler))
+    return OllamaProvider(client=client, **kw)
+
+
+def _server(chat_reply=None, tags=(("qwen3:8b", "abc123def456789"),), log=None):
+    import httpx
+
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": n, "digest": d} for n, d in tags]})
+        body = json.loads(request.content)
+        if log is not None:
+            log.append(body)
+        return httpx.Response(200, json=chat_reply(body) if chat_reply else {
+            "model": body["model"], "message": {"content": '{"verdict": "ok"}', "thinking": "hmm"},
+            "done_reason": "stop", "prompt_eval_count": 120, "eval_count": 30})
+    return handler
+
+
+def test_ollama_request_sets_window_thinking_schema_and_seed():
+    log = []
+    prov = _ollama(_server(log=log), num_ctx=32768)
+    schema = to_structured_output_schema(Verdict.model_json_schema())
+    r = prov.complete(LLMRequest(model="qwen3:8b", system="SYS", user="USR", max_tokens=500, output_schema=schema,
+                                 effort="high"))
+    body = log[0]
+    assert body["options"] == {"num_ctx": 32768, "num_predict": 500, "seed": 0}
+    assert body["think"] is True and body["format"] == schema and body["stream"] is False
+    assert body["messages"] == [{"role": "system", "content": "SYS"}, {"role": "user", "content": "USR"}]
+    assert r.text == '{"verdict": "ok"}' and r.stop_reason == "end_turn" and r.raw["digest"].startswith("abc123")
+    assert (r.input_tokens, r.output_tokens) == (120, 30)
+
+    prov.complete(LLMRequest(model="qwen3:8b", system="", user="U", max_tokens=50))
+    assert log[1]["think"] is False and "format" not in log[1]  # mechanical step: thinking off
+
+
+def test_ollama_refuses_a_prompt_that_would_be_silently_truncated():
+    from tcv.llm.provider import ContextTooLong
+
+    prov = _ollama(_server(), num_ctx=1000)
+    with pytest.raises(ContextTooLong):
+        prov.complete(LLMRequest(model="qwen3:8b", system="", user="x" * 4000, max_tokens=200))
+
+    full = _ollama(_server(chat_reply=lambda b: {"model": "qwen3:8b", "message": {"content": "x"},
+                                                  "done_reason": "stop", "prompt_eval_count": 990, "eval_count": 10}),
+                   num_ctx=1000)
+    with pytest.raises(ContextTooLong, match="truncated"):
+        full.complete(LLMRequest(model="qwen3:8b", system="", user="short", max_tokens=100))
+
+
+def test_ollama_pinned_digest_mismatch_and_missing_model_refuse_to_run():
+    from tcv.llm.provider import ProviderError
+
+    with pytest.raises(ProviderError, match="pins"):
+        _ollama(_server(), pinned={"qwen3:8b": "ffff"}).complete(
+            LLMRequest(model="qwen3:8b", system="", user="U", max_tokens=10))
+    with pytest.raises(ProviderError, match="ollama pull"):
+        _ollama(_server()).complete(LLMRequest(model="llama9:70b", system="", user="U", max_tokens=10))
+
+
+def test_ollama_length_stop_maps_to_max_tokens_and_is_never_cached(tmp_path):
+    from tcv.llm.gateway import TruncatedOutput
+
+    prov = _ollama(_server(chat_reply=lambda b: {"model": "qwen3:8b", "message": {"content": '{"verd'},
+                                                  "done_reason": "length", "prompt_eval_count": 10, "eval_count": 100}))
+    gw = Gateway(provider=prov, models=ModelsConfig(provider="ollama", roles={"judge": RoleConfig(model="qwen3:8b")}),
+                 cache=ResponseCache(tmp_path / "cache"), ledger=Ledger(tmp_path / "calls.jsonl"))
+    with pytest.raises(TruncatedOutput):
+        gw.call("judge", BATCH_PROMPT, {"items": "[]"}, out=Verdict)
+    assert not list((tmp_path / "cache").rglob("*.json"))
+
+
+def test_batch_too_long_for_the_local_window_is_split(tmp_path):
+    def reply(body):
+        items = json.loads(body["messages"][-1]["content"].strip())
+        return {"model": "qwen3:8b", "done_reason": "stop", "prompt_eval_count": 10, "eval_count": 10,
+                "message": {"content": json.dumps({"results": [{"index": it["index"], "verdict": "ok"} for it in items]})}}
+
+    log = []
+    prov = _ollama(_server(chat_reply=reply, log=log), num_ctx=1200)  # fits ~4 items of this size, not 12
+    gw = Gateway(provider=prov, models=ModelsConfig(provider="ollama", roles={"judge": RoleConfig(model="qwen3:8b",
+                                                                                                    max_tokens=200)}),
+                 cache=ResponseCache(tmp_path / "cache"), ledger=Ledger(tmp_path / "calls.jsonl"))
+    results = gw.call_batch("judge", BATCH_PROMPT, [{"claim": "c" * 300} for _ in range(12)], Verdict, per_request=12)
+    assert all(r.ok for r in results)
+    # 12 items would overflow the window, so nothing is sent for them; each half of 6 fits
+    assert [len(json.loads(b["messages"][-1]["content"])) for b in log] == [6, 6]
+
+
+def test_local_tags_cost_nothing_but_unknown_cloud_models_still_raise():
+    assert cost_usd("qwen3:8b", 10_000, 10_000) == 0.0
+    with pytest.raises(UnknownModelPrice):
+        cost_usd("gpt-9", 1, 1)
+
+
+def test_repo_local_models_config_is_valid():
+    from tcv.llm.gateway import load_models_config
+
+    cfg = load_models_config("configs/models.local.yaml")
+    assert cfg.provider == "ollama" and cfg.local.num_ctx >= 32768
+    assert cfg.roles["judge"].effort and not cfg.roles["economy"].effort  # thinking only where it matters
